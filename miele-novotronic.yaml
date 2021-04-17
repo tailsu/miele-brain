@@ -1,0 +1,51 @@
+esphome:
+  name: miele-novotronic
+  platform: ESP8266
+  board: d1_mini
+  includes:
+    - miele-brain/MotorolaLedDriverSniffer.h
+  platformio_options:
+    build_flags: -O2
+    board_build.f_cpu: 160000000L
+
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_pass
+  reboot_timeout: 1min
+  fast_connect: true
+
+ota:
+  num_attempts: 5
+
+mqtt:
+  broker: mqtt.local
+
+# logger:
+
+text_sensor:
+- platform: custom
+  lambda: |-
+    auto sniffer = new MotorolaLedDriverSniffer(miele_time, miele_state);
+    App.register_component(sniffer);
+    return {sniffer};
+  text_sensors:
+    id: sniffer
+
+- platform: template
+  name: Time Left
+  id: miele_time
+  icon: "mdi:washing-machine"
+
+- platform: template
+  name: State
+  id: miele_state
+  icon: "mdi:washing-machine"
+
+status_led:
+  pin:
+    number: D4
+    inverted: true
+
+
