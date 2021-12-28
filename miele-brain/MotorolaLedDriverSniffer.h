@@ -73,6 +73,36 @@ public:
         return _ctrlReg;
     }
 
+    static char decodeBank(uint8_t bankNibble, bool specialDecode) {
+        if (!specialDecode) {
+            if (bankNibble < 10) {
+                return '0' + bankNibble;
+            } else {
+                return 'A' + bankNibble - 10;
+            }
+        } else {
+            switch (bankNibble) {
+                case 0x0: return ' ';
+                case 0x1: return 'c';
+                case 0x2: return 'H';
+                case 0x3: return 'h';
+                case 0x4: return 'J';
+                case 0x5: return 'L';
+                case 0x6: return 'n';
+                case 0x7: return 'o';
+                case 0x8: return 'P';
+                case 0x9: return 'r';
+                case 0xA: return 'U';
+                case 0xB: return 'u';
+                case 0xC: return 'y';
+                case 0xD: return '-';
+                case 0xE: return '=';
+                case 0xF: return 'o';
+            }
+        }
+        __builtin_unreachable();
+    }
+
     volatile uint32_t displayUpdates = 0, ctrlUpdates = 0;
 
 private:
@@ -126,53 +156,117 @@ public:
         _clk.attach_interrupt(&handleClk, this, gpio::INTERRUPT_RISING_EDGE);
     }
 
-    std::string formatTime() const {
-        std::ostringstream str;
+    using DisplayArray = std::array<char, 3>;
 
-        auto dispreg = _left.getDisplayReg();
-        int hours = (dispreg & 0xf);
-        int minutes = ((dispreg >> 4) & 0xf) * 10 + ((dispreg >> 8) & 0xf);
-
-        if (hours > 0) {
-            str << hours << "h " << minutes << "m";
-        } else {
-            str << minutes << " min";
-        }
-        return str.str();
+    bool isDisplayOff() const {
+        return (_left.getCtrlReg() & 1) == 0;
     }
 
-    std::string formatState() const {
+    DisplayArray getDisplay() const {
         auto ldispreg = _left.getDisplayReg();
         auto lctrlreg = _left.getCtrlReg();
 
+        constexpr uint8_t specialDecode1 = 0x42;
+        constexpr uint8_t specialDecode2 = 0x44;
+        constexpr uint8_t specialDecode3 = 0x48;
+
+        return {
+            MC14489::decodeBank(ldispreg & 0xf, (lctrlreg & specialDecode1) == specialDecode1),
+            MC14489::decodeBank((ldispreg >> 4) & 0xf, (lctrlreg & specialDecode2) == specialDecode2),
+            MC14489::decodeBank((ldispreg >> 8) & 0xf, (lctrlreg & specialDecode3) == specialDecode3),
+        };
+    }
+
+    std::string formatTime() const {
+        std::ostringstream str;
+
+        if (isDisplayOff()) {
+            return " ";
+        }
+
+        auto disp = getDisplay();
+        if (disp[0] == '-') {
+            return "---";
+        }
+        if (disp[2] == ' ') {
+            return " ";
+        }
+
+        bool hasHours = disp[0] != ' ';
+        if (hasHours) {
+            str << disp[0] << "h ";
+        }
+
+        if (disp[1] != ' ') {
+            str << disp[1];
+        }
+        if (disp[2] != ' ') {
+            str << disp[2];
+        }
+
+        if (hasHours) {
+            str << "m";
+        } else {
+            str << " min";
+        }
+
+        return str.str();
+    }
+
+    enum State {
+        MIELE_NORMAL,
+        MIELE_DOOR_OPEN,
+        MIELE_FAULT,
+    };
+
+    State decodeState() const {
+        auto lctrlreg = _left.getCtrlReg();
+
+        if (isDisplayOff()) {
+            return MIELE_DOOR_OPEN;
+        }
+        if (getDisplay()[0] == '-') {
+            return MIELE_FAULT;
+        }
+        return MIELE_NORMAL;
+    }
+
+    std::string formatState() const {
         auto rdispreg = _right.getDisplayReg();
         auto rctrlreg = _right.getCtrlReg();
-
-        if (lctrlreg >= 0x71 && lctrlreg <= 0x77) {
-            lctrlreg = 0; // number display
-        }
-        if (lctrlreg == 0x7e || lctrlreg == 0x7f) {
-            lctrlreg = 1; // no display
-        }
 
         std::vector<std::string> states;
 
         auto progress = ((rdispreg & 0xf000) >> 8) | (rdispreg & 0x7);
 
-        // TODO: more reliable source
-        // if (lctrlreg == 0x70) {
-        //     states.emplace_back("Door open");
-        // }
+        auto state = decodeState();
+        switch (state) {
+            case MIELE_DOOR_OPEN:
+                states.emplace_back("Door open");
+                break;
 
-        switch (progress) {
-            case 0x10: states.emplace_back("Pre-washing"); break;
-            case 0x20: states.emplace_back("Washing"); break;
-            case 0x40: states.emplace_back("Rinsing"); break;
-            case 0x80: states.emplace_back("Paused Rinse"); break;
-            case 0x01: states.emplace_back("Pumping"); break;
-            case 0x02: states.emplace_back("Centrifuge"); break;
-            case 0x04: states.emplace_back("Finished"); break;
-            case 0: states.emplace_back("Idle"); break;
+            case MIELE_FAULT:
+                states.emplace_back("Fault");
+                break;
+
+            default:
+                switch (progress) {
+                    case 0x10: states.emplace_back("Pre-washing"); break;
+                    case 0x20: states.emplace_back("Washing"); break;
+                    case 0x40: states.emplace_back("Rinsing"); break;
+                    case 0x80: states.emplace_back("Paused Rinse"); break;
+                    case 0x01: states.emplace_back("Pumping"); break;
+                    case 0x02: states.emplace_back("Spinning"); break;
+                    case 0x04: {
+                        if (getDisplay() == DisplayArray{' ', ' ', '0'}) {
+                            states.emplace_back("Finished");
+                        } else {
+                            states.emplace_back("Idle");
+                        }
+                        break;
+                    }
+                    case 0: states.emplace_back("Ready"); break;
+                }
         }
 
         auto centrifugeSetting = (rdispreg & 0x7e0000) >> 16;
@@ -217,7 +311,7 @@ public:
             str << state;
         }
 
-        // str << std::hex << "R:" << rdispreg << "," << int(rctrlreg) << " L:" << ldispreg << "," << int(lctrlreg);
+        // str << std::hex << "R:" << rdispreg << "," << int(rctrlreg) << " L:" << _left.getDisplayReg() << "," << int(_left.getCtrlReg());
         return str.str();
     }
 

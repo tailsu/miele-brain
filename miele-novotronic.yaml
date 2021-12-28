@@ -16,15 +16,8 @@ wifi:
   reboot_timeout: 1min
   fast_connect: true
 
-ota:
-  num_attempts: 5
-
 mqtt:
   broker: mqtt.local
-
-# logger:
-
-# api:
 
 text_sensor:
 - platform: template
