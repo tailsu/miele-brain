@@ -1,1 +1,4 @@
+.esphome/
+.pio*/
+/miele-novotronic/
 secrets.yaml

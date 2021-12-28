@@ -24,15 +24,9 @@ mqtt:
 
 # logger:
 
-text_sensor:
-- platform: custom
-  lambda: |-
-    auto sniffer = new MotorolaLedDriverSniffer(miele_time, miele_state);
-    App.register_component(sniffer);
-    return {sniffer};
-  text_sensors:
-    id: sniffer
+# api:
 
+text_sensor:
 - platform: template
   name: Time Left
   id: miele_time
@@ -42,6 +36,14 @@ text_sensor:
   name: State
   id: miele_state
   icon: "mdi:washing-machine"
+
+- platform: custom
+  lambda: |-
+    auto sniffer = new MotorolaLedDriverSniffer(miele_time, miele_state);
+    App.register_component(sniffer);
+    return {sniffer};
+  text_sensors:
+    id: sniffer
 
 status_led:
   pin:

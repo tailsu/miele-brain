@@ -5,9 +5,23 @@
 
 namespace esphome {
 
+class MC14489Pin : public esp8266::ESP8266GPIOPin {
+public:
+    MC14489Pin(const MC14489Pin&) = default;
+    MC14489Pin(uint8_t pin, gpio::Flags flags, bool inverted = false) {
+        set_pin(pin);
+        set_flags(flags);
+        set_inverted(inverted);
+    }
+
+
+  using esp8266::ESP8266GPIOPin::attach_interrupt;
+
+};
+
 class MC14489 {
 public:
-    MC14489(uint8_t csPin, GPIOPin* data) : _data(*data), _cs(csPin, INPUT, true) {
+    MC14489(uint8_t csPin, MC14489Pin* data) : _data(*data), _cs(csPin, gpio::FLAG_INPUT, true) {
     }
 
     MC14489(const MC14489&) = delete;
@@ -15,11 +29,11 @@ public:
 
     void setup() {
         _cs.setup();
-        _cs.attach_interrupt(&handleChipSelect, this, CHANGE);
+        _cs.attach_interrupt(&handleChipSelect, this, gpio::INTERRUPT_ANY_EDGE);
     }
 
-    static void ICACHE_RAM_ATTR HOT handleChipSelect(MC14489* self) {
-        self->select();
+    static void ICACHE_RAM_ATTR HOT handleChipSelect(void* self) {
+        reinterpret_cast<MC14489*>(self)->select();
     }
 
     void ICACHE_RAM_ATTR HOT select() {
@@ -62,8 +76,8 @@ public:
     volatile uint32_t displayUpdates = 0, ctrlUpdates = 0;
 
 private:
-    GPIOPin _data;
-    GPIOPin _cs;
+    MC14489Pin _data;
+    MC14489Pin _cs;
 
     volatile bool _selected = false;
 
@@ -79,8 +93,8 @@ class MotorolaLedDriverSniffer : public Component, public esphome::text_sensor::
 
 public:
     MotorolaLedDriverSniffer(text_sensor::TextSensor* timeOutput, text_sensor::TextSensor* stateOutput)
-        : _data(14, INPUT) // D5
-        , _clk(12, INPUT) // D6
+        : _data(14, gpio::FLAG_INPUT) // D5
+        , _clk(12, gpio::FLAG_INPUT) // D6
         , _left(4, &_data) // D2
         , _right(5, &_data) // D1
         , _timeOutput(timeOutput)
@@ -94,8 +108,8 @@ public:
         return esphome::setup_priority::AFTER_CONNECTION;
     }
 
-    static void ICACHE_RAM_ATTR handleClk(MotorolaLedDriverSniffer* self) {
-        self->handleClkImpl();
+    static void ICACHE_RAM_ATTR handleClk(void* self) {
+        reinterpret_cast<MotorolaLedDriverSniffer*>(self)->handleClkImpl();
     }
 
     void ICACHE_RAM_ATTR handleClkImpl() {
@@ -109,7 +123,7 @@ public:
         _left.setup();
         _right.setup();
 
-        _clk.attach_interrupt(&handleClk, this, RISING);
+        _clk.attach_interrupt(&handleClk, this, gpio::INTERRUPT_RISING_EDGE);
     }
 
     std::string formatTime() const {
@@ -221,7 +235,7 @@ public:
         // ESP_LOGI("sniffer", "Right: display=%x ctrl=%x  DU=%d CU=%d", _right.getDisplayReg(), _right.getCtrlReg(), _right.displayUpdates, _right.ctrlUpdates);
     }
 
-    GPIOPin _data, _clk;
+    MC14489Pin _data, _clk;
     MC14489 _left, _right;
 
     text_sensor::TextSensor* _timeOutput;
