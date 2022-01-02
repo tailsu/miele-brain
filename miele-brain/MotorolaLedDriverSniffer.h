@@ -15,8 +15,60 @@ public:
     }
 
 
-  using esp8266::ESP8266GPIOPin::attach_interrupt;
+    using esp8266::ESP8266GPIOPin::attach_interrupt;
+};
 
+template <typename T, size_t N>
+class RingBuffer {
+public:
+    T values[N] = {};
+
+    void push(T value) {
+        values[_ptr] = value;
+        _ptr = (_ptr + 1) % N;
+        _size = std::min(_size + 1, N);
+    }
+
+    size_t size() const {
+        return _size;
+    }
+
+private:
+    size_t _ptr = 0;
+    size_t _size = 0;
+};
+
+template <typename T, size_t Votes = 3>
+class ConsensusBuffer {
+public:
+    operator T() const {
+        return _consensusValue;
+    }
+
+    ConsensusBuffer& operator=(T nextValue) {
+        _buffer.push(nextValue);
+        updateConsensus();
+        return *this;
+    }
+
+private:
+    RingBuffer<T, Votes> _buffer;
+    volatile T _consensusValue = T();
+
+    void updateConsensus() {
+        if (_buffer.size() < Votes) {
+            return;
+        }
+
+        T value = _buffer.values[0];
+        for (size_t i = 1; i < Votes; ++i) {
+            if (value != _buffer.values[i]) {
+                return;
+            }
+        }
+
+        _consensusValue = value;
+    }
 };
 
 class MC14489 {
@@ -109,14 +161,13 @@ private:
     MC14489Pin _data;
     MC14489Pin _cs;
 
-    volatile bool _selected = false;
+    bool _selected = false;
 
-    volatile uint32_t _buffer = 0;
-    volatile uint8_t _bits = 0;
+    uint32_t _buffer = 0;
+    uint8_t _bits = 0;
 
-    volatile uint32_t _displayReg = 0;
-    volatile uint8_t _ctrlReg = 0;
-
+    ConsensusBuffer<uint32_t> _displayReg;
+    ConsensusBuffer<uint8_t> _ctrlReg;
 };
 
 class MotorolaLedDriverSniffer : public Component, public esphome::text_sensor::TextSensor {

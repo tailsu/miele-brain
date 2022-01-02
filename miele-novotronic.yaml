@@ -19,14 +19,18 @@ wifi:
 mqtt:
   broker: mqtt.local
 
+# logger:
+
 text_sensor:
 - platform: template
   name: Time Left
+  update_interval: 7d
   id: miele_time
   icon: "mdi:washing-machine"
 
 - platform: template
   name: State
+  update_interval: 7d
   id: miele_state
   icon: "mdi:washing-machine"
 
